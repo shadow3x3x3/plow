@@ -1,13 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"fmt"
-	"github.com/valyala/fasthttp"
-	"github.com/valyala/fasthttp/fasthttpproxy"
-	"go.uber.org/automaxprocs/maxprocs"
-	"golang.org/x/time/rate"
 	"io/ioutil"
 	"net"
 	url2 "net/url"
@@ -19,6 +16,13 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unsafe"
+
+	"github.com/rs/xid"
+	"github.com/valyala/fasthttp"
+	"github.com/valyala/fasthttp/fasthttpproxy"
+	"go.uber.org/automaxprocs/maxprocs"
+	"golang.org/x/time/rate"
 )
 
 var (
@@ -245,7 +249,23 @@ func (r *Requester) closeRecord() {
 	})
 }
 
-func (r *Requester) DoRequest(req *fasthttp.Request, resp *fasthttp.Response, rr *ReportRecord) {
+var rand = []byte("%7B%7Brandom%7D%7D")
+
+func s2b(s string) (bs []byte) {
+	return unsafe.Slice(unsafe.StringData(s), len(s))
+}
+
+func (r *Requester) DoRequest(req *fasthttp.Request, resp *fasthttp.Response, rr *ReportRecord, needRand bool) {
+	if needRand {
+		for bytes.Contains(req.RequestURI(), rand) {
+			randXid := s2b(xid.New().String())
+			req.SetRequestURIBytes(bytes.Replace(req.RequestURI(), rand, randXid, 1))
+			defer func() {
+				req.SetRequestURIBytes(bytes.Replace(req.RequestURI(), randXid, rand, 1))
+			}()
+		}
+	}
+
 	t1 := time.Since(startTime)
 	var err error
 	if r.clientOpt.doTimeout > 0 {
@@ -312,6 +332,8 @@ func (r *Requester) Run() {
 		limiter = rate.NewLimiter(*r.reqRate, 1)
 	}
 
+	needRand := bytes.Contains(r.httpHeader.RequestURI(), rand)
+
 	semaphore := r.requests
 	for i := 0; i < r.concurrency; i++ {
 		r.wg.Add(1)
@@ -367,7 +389,7 @@ func (r *Requester) Run() {
 				}
 				resp.Reset()
 				rr := recordPool.Get().(*ReportRecord)
-				r.DoRequest(req, resp, rr)
+				r.DoRequest(req, resp, rr, needRand)
 				rr.readBytes = atomic.LoadInt64(&r.readBytes)
 				rr.writeBytes = atomic.LoadInt64(&r.writeBytes)
 				r.recordChan <- rr
