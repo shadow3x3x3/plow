@@ -249,19 +249,30 @@ func (r *Requester) closeRecord() {
 	})
 }
 
-var rand = []byte("%7B%7Brandom%7D%7D")
-
 func s2b(s string) (bs []byte) {
 	return unsafe.Slice(unsafe.StringData(s), len(s))
 }
 
+var (
+	urlRand   = s2b("%7B%7Brandom%7D%7D")
+	queryRand = s2b("{{random}}")
+)
+
 func (r *Requester) DoRequest(req *fasthttp.Request, resp *fasthttp.Response, rr *ReportRecord, needRand bool) {
 	if needRand {
-		for bytes.Contains(req.RequestURI(), rand) {
+		for bytes.Contains(req.RequestURI(), urlRand) {
 			randXid := s2b(xid.New().String())
-			req.SetRequestURIBytes(bytes.Replace(req.RequestURI(), rand, randXid, 1))
+			req.SetRequestURIBytes(bytes.Replace(req.RequestURI(), urlRand, randXid, 1))
 			defer func() {
-				req.SetRequestURIBytes(bytes.Replace(req.RequestURI(), randXid, rand, 1))
+				req.SetRequestURIBytes(bytes.Replace(req.RequestURI(), randXid, urlRand, 1))
+			}()
+		}
+
+		for bytes.Contains(req.RequestURI(), queryRand) {
+			randXid := s2b(xid.New().String())
+			req.SetRequestURIBytes(bytes.Replace(req.RequestURI(), queryRand, randXid, 1))
+			defer func() {
+				req.SetRequestURIBytes(bytes.Replace(req.RequestURI(), randXid, queryRand, 1))
 			}()
 		}
 	}
@@ -332,7 +343,8 @@ func (r *Requester) Run() {
 		limiter = rate.NewLimiter(*r.reqRate, 1)
 	}
 
-	needRand := bytes.Contains(r.httpHeader.RequestURI(), rand)
+	hUri := r.httpHeader.RequestURI()
+	needRand := bytes.Contains(hUri, urlRand) || bytes.Contains(hUri, queryRand)
 
 	semaphore := r.requests
 	for i := 0; i < r.concurrency; i++ {
