@@ -274,20 +274,18 @@ var (
 
 func (r *Requester) DoRequest(req *fasthttp.Request, resp *fasthttp.Response, rr *ReportRecord) {
 	if r.includeRand() {
+		defer func() {
+			req.SetRequestURIBytes(r.httpHeader.RequestURI())
+		}()
+
 		for bytes.Contains(req.RequestURI(), urlRand) {
 			randXid := s2b(xid.New().String())
 			req.SetRequestURIBytes(bytes.Replace(req.RequestURI(), urlRand, randXid, 1))
-			defer func() {
-				req.SetRequestURIBytes(bytes.Replace(req.RequestURI(), randXid, urlRand, 1))
-			}()
 		}
 
 		for bytes.Contains(req.RequestURI(), queryRand) {
 			randXid := s2b(xid.New().String())
 			req.SetRequestURIBytes(bytes.Replace(req.RequestURI(), queryRand, randXid, 1))
-			defer func() {
-				req.SetRequestURIBytes(bytes.Replace(req.RequestURI(), randXid, queryRand, 1))
-			}()
 		}
 	}
 
@@ -410,6 +408,7 @@ func (r *Requester) Run() {
 				} else {
 					req.SetBodyRaw(r.clientOpt.bodyBytes)
 				}
+
 				resp.Reset()
 				rr := recordPool.Get().(*ReportRecord)
 				r.DoRequest(req, resp, rr)
