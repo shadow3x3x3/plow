@@ -109,6 +109,8 @@ type Requester struct {
 	readBytes  int64
 	writeBytes int64
 
+	needRand *bool
+
 	cancel func()
 }
 
@@ -249,6 +251,18 @@ func (r *Requester) closeRecord() {
 	})
 }
 
+func (r *Requester) includeRand() bool {
+	if r.needRand != nil {
+		return *r.needRand
+	}
+
+	hUri := r.httpHeader.RequestURI()
+	needRand := bytes.Contains(hUri, urlRand) || bytes.Contains(hUri, queryRand)
+	r.needRand = &needRand
+
+	return needRand
+}
+
 func s2b(s string) (bs []byte) {
 	return unsafe.Slice(unsafe.StringData(s), len(s))
 }
@@ -258,8 +272,8 @@ var (
 	queryRand = s2b("{{random}}")
 )
 
-func (r *Requester) DoRequest(req *fasthttp.Request, resp *fasthttp.Response, rr *ReportRecord, needRand bool) {
-	if needRand {
+func (r *Requester) DoRequest(req *fasthttp.Request, resp *fasthttp.Response, rr *ReportRecord) {
+	if r.includeRand() {
 		for bytes.Contains(req.RequestURI(), urlRand) {
 			randXid := s2b(xid.New().String())
 			req.SetRequestURIBytes(bytes.Replace(req.RequestURI(), urlRand, randXid, 1))
@@ -343,9 +357,6 @@ func (r *Requester) Run() {
 		limiter = rate.NewLimiter(*r.reqRate, 1)
 	}
 
-	hUri := r.httpHeader.RequestURI()
-	needRand := bytes.Contains(hUri, urlRand) || bytes.Contains(hUri, queryRand)
-
 	semaphore := r.requests
 	for i := 0; i < r.concurrency; i++ {
 		r.wg.Add(1)
@@ -401,7 +412,7 @@ func (r *Requester) Run() {
 				}
 				resp.Reset()
 				rr := recordPool.Get().(*ReportRecord)
-				r.DoRequest(req, resp, rr, needRand)
+				r.DoRequest(req, resp, rr)
 				rr.readBytes = atomic.LoadInt64(&r.readBytes)
 				rr.writeBytes = atomic.LoadInt64(&r.writeBytes)
 				r.recordChan <- rr
