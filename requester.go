@@ -5,7 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net"
 	url2 "net/url"
 	"os"
@@ -316,7 +316,7 @@ func (r *Requester) DoRequest(req *fasthttp.Request, resp *fasthttp.Response, rr
 	case 5:
 		code = "5xx"
 	}
-	err = resp.BodyWriteTo(ioutil.Discard)
+	err = resp.BodyWriteTo(io.Discard)
 	if err != nil {
 		rr.cost = time.Since(startTime) - t1
 		rr.code = ""
