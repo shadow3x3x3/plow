@@ -268,14 +268,17 @@ func s2b(s string) (bs []byte) {
 }
 
 var (
+	hostRand  = s2b("random")
 	urlRand   = s2b("%7B%7Brandom%7D%7D")
 	queryRand = s2b("{{random}}")
 )
 
 func (r *Requester) DoRequest(req *fasthttp.Request, resp *fasthttp.Response, rr *ReportRecord) {
 	if r.includeRand() {
+		oldHost := r.httpHeader.Host()
 		defer func() {
 			req.SetRequestURIBytes(r.httpHeader.RequestURI())
+			req.SetHostBytes(oldHost)
 		}()
 
 		for bytes.Contains(req.RequestURI(), urlRand) {
@@ -286,6 +289,11 @@ func (r *Requester) DoRequest(req *fasthttp.Request, resp *fasthttp.Response, rr
 		for bytes.Contains(req.RequestURI(), queryRand) {
 			randXid := s2b(xid.New().String())
 			req.SetRequestURIBytes(bytes.Replace(req.RequestURI(), queryRand, randXid, 1))
+		}
+
+		for bytes.Contains(req.Host(), hostRand) {
+			randXid := s2b(xid.New().String())
+			req.SetHostBytes(bytes.Replace(req.Host(), hostRand, randXid, 1))
 		}
 	}
 
